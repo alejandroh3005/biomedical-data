@@ -1,0 +1,72 @@
+---
+title: "BIOST 544: Homework 1"
+subtitle: "Department of Biostatistics @ University of Washington"
+author: 
+- Alejandro Hernandez
+date: "October 5, 2024"
+output: pdf_document
+---
+
+```{r setup, include=F}
+# setup options
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+options(knitr.kable.NA = '-')
+labs = knitr::all_labels()
+labs = labs[!labs %in% c("setup", "llm_appendix", "allcode")]
+```
+
+```{r load-libraries-data, include=F}
+# clear environment
+rm(list=ls())
+
+# load relevant packages
+# library(dplyr)      # data frame manipulation
+# library(knitr)      # table formatting
+# library(gtsummary)  # "table 1" summary
+# library(tidyverse)
+
+# load data
+nsclc <- read.table("../data/nsclc-modified.txt")
+```
+
+## Background
+
+There is a belief that the effectiveness of the anti-angiogenesis agent TFD725 (evaluated in the **nsclc** dataset) may be different for older vs younger patients. We will use the nsclc dataset to attempt to evaluate this.
+
+## Analysis
+
+(1) As a first pass, we will consider a few subgroups of patients: Those 50 and older (50+), 55+, 60+, 65+, and 70+. Please estimate/evaluate the probability a patient on TFD725+docetaxel will survive past 400 days in each of those subgroups. Please also give an interval estimate for each of those probabilities.
+
+```{r question-1}
+# create a factor variable from patient age
+nsclc$age2 <- cut(nsclc$age, 
+                  c(seq(50,70,5), max(nsclc$age)), include.lowest = TRUE,
+                  labels = c("50+","55+","60+","65+","70+"))
+# remove the few observations whose age was below 50 (their age2 is NA)
+nsclc <- subset(nsclc, !is.na(age2))
+table(nsclc$age2) # number of patients within each group
+# there are too few patients aged 70+ for it to be a suitable category
+
+# perform logistic regression to estimate the age-specific treatment effects
+mod.lr <- glm(survival.past.400 ~ tx*age2, data=nsclc, family=binomial())
+coef(mod.lr)
+# confint(mod.lr)
+```
+
+2) Now, in each of those subgroups evaluate whether TFD725+docetaxel is more effective than docetaxel alone (and the magnitude of any potential treatment effect). In addition, evaluate if the treatment effect appears to substantively and/or systematically differ across age (or if the data doesn’t give a clear answer to this).
+
+```{r question-2}
+
+```
+
+
+**End of report. Code appendix begins on the next page.**
+
+\pagebreak
+
+## Code Appendix
+
+```{r allcode, ref.label = knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+
+**End of document.**
