@@ -1,0 +1,194 @@
+---
+title: "Lecture 2 Example"
+author: "BIOST 544"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, fig.width=6, fig.height=4)
+knitr::opts_knit$set(root.dir = "~/Dropbox/Teaching/UW/BIOST544/current/lectures/lecture2/code/") ## Set this to your own working directory
+
+options(digits = 3) ## Formats output to 3 digits
+library(ggplot2)
+library(dplyr)
+
+set.seed(1)
+```
+
+## Reminder
+To get markdown to work remember: Install the newest version of **R**!
+
+## Data Analysis
+We will continue analyzing the non-small cell lung cancer trial data.
+
+Last time we checked if various values for $\pi_T$ were consistent with our data. We now want to evaluate if patients on the new treatment are more likely than patients on standard-of-care to survive past $400$ days (ie. if $\pi_T > \pi_C$). To evaluate this, we would like to see if there is some $\pi_T,\pi_C$ pair with $\pi_T \leq \pi_C$ that is consistent with the observed data. If we can find this pair of probabilities, then we cannot claim, beyond a reasonable doubt, that $\pi_T > \pi_C$.
+
+We again load our data; and calculate our various response proportions (as well as number of patients per arm).
+
+```{r load_data}
+nsclc <- read.table("../../../data/nsclc-data/nsclc-modified.txt", header = TRUE)
+
+(resp.prop.overall <- nsclc %>%
+                      summarise(prop = mean(survival.past.400)) %>%
+                      .$prop)
+
+(resp.prop.treat <- nsclc %>%
+                    filter(tx == 1) %>%
+                    summarise(prop = mean(survival.past.400)) %>%
+                    .$prop)
+
+(resp.prop.control <- nsclc %>%
+                      filter(tx == 0) %>%
+                      summarise(prop = mean(survival.past.400)) %>%
+                      .$prop)
+
+(resp.prop.diff <- resp.prop.treat - resp.prop.control)
+
+num.per.arm <- nsclc %>%
+                group_by(tx) %>%
+                summarise(number = n())
+
+num.control <- num.per.arm$number[1]
+num.treat <- num.per.arm$number[2]
+
+```
+We see that the difference of our empirical proportions `r resp.prop.diff` might give some evidence of improved survival past $400$ days in treated vs control.
+
+We note that $\pi_T =`r resp.prop.treat`$, and $\pi_C =`r resp.prop.control`$ are the values of $\pi_T$ and $\pi_C$ that are most consistent with our data. We also note that these do not obey the constraint $\pi_T \leq \pi_C$ however. Here we are interested in the values for $\pi_T$ and $\pi_C$ that are most consistent, *and obey that constraint*.
+
+In this case $\pi_T = \pi_C = `r resp.prop.overall`$ (the overall response proportion) gives the most data-consistent pair, given the constraint $\pi_T \leq \pi_C$.
+
+From here, we would still like to evaluate how consistent $\pi_T = \pi_C = `r resp.prop.overall`$ is with the observed difference of proportions $\hat{\pi}_T - \hat{\pi}_C = `r resp.prop.diff`$. We do this as before, by simulating trials and checking if our original value, `r resp.prop.diff` is consistent with the simulations.
+
+We first write a function to simulate a single trial
+
+```{r run_one_trial}
+simulate.trial <- function(pi.treat, pi.control, n.treat, n.control){
+    patients.treat <- rbinom(1,n.treat,pi.treat)
+    patients.control <- rbinom(1,n.control,pi.control)
+
+    prop.diff <- patients.treat/n.treat - patients.control/n.control
+
+    return(prop.diff)
+}
+```
+Now, we would like to simulate a large number of trials (say $10000$). Using the above function this is quite straightforward:
+
+```{r run_many}
+ntrial <- 10000
+
+simulated.prop.diffs <- replicate(ntrial,
+                                  simulate.trial(resp.prop.overall,
+                                                   resp.prop.overall,
+                                                   num.control,
+                                                   num.treat))
+```
+
+From here we can look at the histogram of simulated proportion differences, and see where our original value of `r resp.prop.overall` falls.
+
+```{r comparisons}
+hist(simulated.prop.diffs)
+abline(v = resp.prop.diff, col = "red")
+
+mean(simulated.prop.diffs <= resp.prop.diff)
+```
+Our original value is in the tail (though not that far in the tail). Thus even this *most consistent* pair, is not particularly consistent with the data. Thus we conclude that $\pi_T$ is greater than $\pi_C$.
+
+## Working with continuous survival time
+We used "survival past $400$ days" as sort of a toy outcome. Instead we will actually use survival/censoring time (coded as `obstime` in the dataframe). We should note that some of the observations are censored (because we stop recording at the end of the trial), and this _should_ be taken into account. In this analysis we will not, and just act as though all these times are actually survival times.
+
+We are interested in whether new treatment improves survival time over standard-of-care. "Improves survival time" is not particularly formal: Are we talking about increases the mean time? The median time? Before we formalize, let's look graphically at the data.
+
+Let's look at survival time (but not stratify by treatment). Here we use `ggplot2` to do our visualization. Note the `+ geom_histogram` and `+ geom_density` indicate that we want both a blocky and smooth histogram.
+
+```{r graphical_comp_1}
+ggplot(data = nsclc, mapping = aes(x=obstime, y=..density..)) +
+    geom_histogram(binwidth = 30) + geom_density()
+
+# Here's an alternative way to get the same plot
+#ggplot(data = nsclc, mapping = aes(x=obstime, y=stat(density))) +
+#    geom_histogram(binwidth = 30) + geom_density()
+```
+
+We can also stratify by treatment (and color accordingly).
+
+```{r graphical_comp_2}
+ggplot(data = nsclc, aes(x=obstime,y=..density.., fill=as.factor(tx))) + 
+    geom_histogram(alpha=0.4, position="identity", binwidth=30)
+
+ggplot(data = nsclc, aes(x=obstime, y=..density.., colour=as.factor(tx))) + geom_density()
+```
+
+By changing our `+` statement (and slightly tweaking our `aes` command), we visualize things differently
+
+```{r graphical_comp_3}
+ggplot(data = nsclc, aes(x=as.factor(tx), y=obstime, fill=as.factor(tx))) + geom_boxplot()
+```
+
+These appear to give a visual indication that treatment improves survival time.
+
+## A Numeric Evaluation
+Two potentially meaningful survival time increases we might consider are "increased mean survival time" or "increased median survival time".
+
+Let's first calculate the empirical mean and median survival times per treatment, and their difference:
+
+```{r mean_median_calc}
+(time.summ <- nsclc %>%
+             group_by(tx) %>%
+             summarise(avg.time = mean(obstime), median.time = median(obstime)))
+(diff.summ <- time.summ[2,2:3] - time.summ[1,2:3])
+```
+
+Now, we want to see if $\mu_T > \mu_C$. In particular to do this we must evaluate if $\mu_T \leq \mu_C$ is consistent with our data. We use a simple resampling method known as a "permutation test" to evaluate this. Permutation tests actually evaluate (something that is _almost_) if $\mu_T = \mu_C$.
+
+If the new treatment has an identical effect as standard-of-care, then there was nothing special about our assignment to treatment/control. Thus, if we permute (or shuffle) the treatment assignments, we should see a very similar mean/median difference. So let's try permuting a bunch of times, and calculating mean/median differences and see how those compare to what we originally found.
+
+We first write a function to run a single permuted experiment
+
+```{r sim_one_perm}
+simulate.perm.trial <- function(data){
+
+    ## create the permuted data ##
+    perm <- sample(1:nrow(data), replace=FALSE)
+    perm.data <- data
+    perm.data$tx <- data$tx[perm]
+    
+    ## calculate the mean/median differences on permuted data
+    perm.mean.diff <- with(perm.data,
+                           mean(obstime[tx == 1]) - mean(obstime[tx == 0]))
+    perm.median.diff <- with(perm.data,
+                             median(obstime[tx == 1]) - median(obstime[tx == 0]))
+    return( c(perm.mean.diff, perm.median.diff) )
+}
+```
+
+Now let's run many of these
+``` {r sim_many_perm}
+nsim <- 1e4
+set.seed(1)
+permuted.stats <- data.frame(t(replicate(nsim, simulate.perm.trial(nsclc)))) ## note we do a little formatting here
+colnames(permuted.stats) <- c("mean.diff","median.diff")
+```
+and evaluate how our original mean and median differences (`r diff.summ`) compare.
+
+For the mean we see
+```{r perm_eval_mean}
+ggplot(permuted.stats, aes(x=mean.diff, y=..density..)) +
+    geom_density() +
+    geom_vline(xintercept=diff.summ$avg.time, colour = "red")
+
+mean(permuted.stats$mean.diff >= diff.summ$avg.time)
+```
+
+While for the median we see
+```{r perm_eval_median}
+ggplot(permuted.stats, aes(x=median.diff, y=..density..)) +
+    geom_density() +
+    geom_vline(xintercept=diff.summ$median.time, colour = "red")
+
+mean(permuted.stats$median.diff >= diff.summ$median.time)
+```
+We see that our original values do not fall too far in the tails. So $\mu_T = \mu_C$ is consistent with our data.

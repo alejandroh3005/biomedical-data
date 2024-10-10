@@ -1,0 +1,184 @@
+---
+title: "Lecture 1 Example"
+author: "BIOST 544"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, fig.width=6, fig.height=4)
+knitr::opts_knit$set(root.dir = "~/Dropbox/Teaching/UW/BIOST544/current/lectures/lecture1/code/") ## Set this to your own working directory
+
+options(digits = 3) ## Formats output to 3 digits
+library(dplyr)
+
+set.seed(1)
+```
+
+## Reminder
+To get markdown to work remember: Install the newest version of **R**!
+
+## Data Analysis
+We are going to work through a simple example illustrating histograms, testing, and confidence intervals in the context of the binomial distribution.
+
+We begin by loading data from a clinical trial for non-small cell lung cancer. This trial was testing the effectiveness of a new treatment (an angiogenesis inhibitor + chemotherapy) vs standard of care (chemotherapy alone).
+
+```{r load_data}
+data <- read.table("../../../data/nsclc-data/nsclc-modified.txt", header = TRUE)
+names(data) ## Column Names
+data %>% summarise(n()) ## Number of observations
+```
+We see that there are `r ncol(data)` features and `r data %>% summarise(n())` patients. The column names are somewhat mysterious, but a look at the .doc file associated with the data will clear that up.
+
+The variable `tx` indicates the treatment arm (`0` for chemo, `1` for anti-angi+chemo).
+
+The variable `survival.past.400` is a _derived_ variable (created from other variables in the dataset) that indicates if a patient survived more than $400$ days after randomization (`1` for yes, `0` for no). We will call those surviving patients, responders to either treatment or control. 
+
+```{r survival}
+(resp.prop.overall <- data %>%
+                      summarise(resp.prop.overall = mean(survival.past.400)))
+```
+We see that `r resp.prop.overall *100`% of patients survived past $400$ days. We can further break this down by treatment
+
+```{r survival_by_treatment}
+(resp.prop.treat <- data %>%
+                    filter(tx == 1) %>%
+                    summarise(prop = mean(survival.past.400)) %>%
+                    .$prop)
+(resp.prop.control <- data %>%
+                      filter(tx == 0) %>%
+                      summarise(prop = mean(survival.past.400)) %>%
+                      .$prop)
+```
+On the treatment arm `r resp.prop.treat*100`% survived to $400$ days, while on the standard-of-care arm only `r resp.prop.control*100`%. 
+
+It looks like the new treatment is more effective than standard-of-care. However, we must _always_ assess variability.
+
+## Assessing Variability
+For now we will work only with the new treatment arm. Let us make a new dataframe with only that data
+
+```{r sub_data}
+(num_treated <- data %>%
+                filter(tx==1) %>% 
+                summarise(num = n()) %>% 
+                .$num)
+```
+
+We are interested in determining _response_ _probabilities_ ($\pi$) which could reasonably have given rise to the data we saw. We will refer to these as _response_ _probabilities_ that are _consistent_ with the observed data. We will model the outcome of each of our `r num_treated` treated patients as a _bernoulli_ variable (a biased coin flip).
+
+Is $\pi = 0.1$ consistent with our data? Let us try a simulation (or monte-carlo) experiment to see.
+
+We will simulate a bunch of datasets with `r num_treated` patients, where each patient has a probability $\pi = 0.1$ of surviving past $400$ days; and compare the empirical proportions we tend to get, to our original value of `r resp.prop.treat`.
+
+```{r sim_data_0.1}
+num_sim <- 10000
+simulated_datasets_0.1 <- rbinom(num_sim, num_treated, 0.1) ## Simulates coin flips
+simulated_averages_0.1 <- simulated_datasets_0.1 / num_treated
+hist(simulated_averages_0.1, xlim = c(0.1, 0.6)) ## Makes a histogram
+abline(v=resp.prop.treat, col = "red") ## Adds a vertical line to a plot
+```
+
+This is a histogram showing all $10000$ empirical averages we saw in our simulation. This is known as the  **Sampling Distribution** of our empirical average (under $\pi=0.1$). The largest value we saw was `r max(simulated_averages_0.1)`, well below the value `r resp.prop.treat` from our original data. Intuitively this means that $\pi = 0.1$ is _inconsistent_ with our data.
+
+What about $\pi = 0.5$? Let us repeat the previous experiment
+
+```{r sim_data_0.5}
+simulated_datasets_0.5 <- rbinom(num_sim, num_treated, 0.5)
+simulated_averages_0.5 <- simulated_datasets_0.5 / num_treated
+hist(simulated_averages_0.5)
+abline(v=resp.prop.treat, col = "red")
+```
+
+This is less clear cut. One way to evaluate things is to look at the percentile of our original value `r resp.prop.treat` in our new data (ie. what proportion of simulated values fall below  `r resp.prop.treat`).
+
+```{r sim_data_p_val}
+(percentile_0.5 <- mean(simulated_averages_0.5 <= resp.prop.treat))
+(proportion_above_0.5 <- 1 - percentile_0.5)
+```
+So only `r proportion_above_0.5` of our simulated estimates are above our original value `r resp.prop.treat`. This is actually exactly the definition of a $p$-value. Thus our (one-sided) p-value for testing if $\pi = 0.5$ is `r percentile_0.5`. This is fairly consistent with our data.
+
+Now is $\pi = 0.7$ consistent with our data? We can do the same thing as before. 
+```{r sim_data_0.7}
+simulated_datasets_0.7 <- rbinom(num_sim, num_treated, 0.7)
+simulated_averages_0.7 <- simulated_datasets_0.7 / num_treated
+hist(simulated_averages_0.7)
+abline(v=resp.prop.treat, col = "red")
+(percentile_0.7 <- mean(simulated_averages_0.7 <= resp.prop.treat))
+```
+Here though we see that most of our simulated estimates lie above `r resp.prop.treat`, very few lie below. In this case a one-sided p-value (in the opposite direction) would be `r percentile_0.7`.
+
+Generally when we check if a parameter value $\pi$ is consistent with our data, we consider both the number of simulated estimates (using $\pi$) _above_ and _below_ our original value. If either is very small (less than $0.05$?), then we say that given $\pi$ is inconsistent with our data. Otherwise we say $\pi$ is consistent.
+
+This is equivalent to the statement: $\pi$ is consistent with our data if `r resp.prop.treat` is between the $0.05$th and $0.95$th quantile of the sampling distribution of the empirical average (based on $\pi$).
+
+
+## Interval Estimates
+
+Suppose we want to find all values of $\pi$ that are consistent with our data. We could copy paste the above code a _lot_ of times... But that is tedious and we are interested in _programmatic_ _data_ _analysis_.
+
+We first create a set of candidate values for $\pi$.
+``` {r candidate_pi}
+(candidate_pi_11 <- seq(from = 0, to = 1, length.out = 11))
+```
+We now want to do a nearly identical operation many times; each time changing only $\pi$. To do this, we want to write a _function_. A function takes a variable as input, operates on that variable, and returns something (often a number or a vector of numbers) as output.
+
+Our function will take in a value for $\pi$. It will then calculate the sampling distribution of the empirical mean (based on $\pi$).
+
+``` {r sampling_func}
+calc_sample_dist <- function(pi){
+  nsamp <- 10000
+  sample_counts <- rbinom(nsamp, 98, pi)
+  sample_means <- sample_counts/98
+  return(sample_means)
+}
+```
+
+We can test our function
+
+``` {r test_samp}
+test_samples_0.1 <- calc_sample_dist(0.1)
+hist(test_samples_0.1, xlim = c(0.1, 0.6))
+```
+
+This looks very similar to our first histogram (it will look slightly different because we are using random samples). Note: I did something a bit unkosher here --- I hard-coded numbers into my function. In practice I would want to use a function with multiple variables (known as _arguments_). We will look at that later.
+
+Now we have our function, and our list of candidate $\pi$-values. We just need to plug each of those $\pi$-values into our function and then calculate the percentile for each. We do this using a `loop`.
+
+``` {r loop_example}
+percentiles_11 <- c()
+for(pi in candidate_pi_11){
+  samp_dist <- calc_sample_dist(pi) ## This calls the function we just created
+  percentile <- mean(samp_dist <= resp.prop.treat)
+  percentiles_11 <- c(percentiles_11,percentile)
+}
+print(percentiles_11)
+```
+
+In practice we want our grid of candidate $\pi$-values to be finer. Let's try it with many more:
+
+``` {r interval_101}
+candidate_pi_101 <- seq(from = 0, to = 1, length.out = 101)
+percentiles_101 <- c()
+for(pi in candidate_pi_101){
+  samp_dist <- calc_sample_dist(pi)
+  percentile <- mean(samp_dist <= resp.prop.treat)
+  percentiles_101 <- c(percentiles_101,percentile)
+}
+plot(candidate_pi_101, percentiles_101)
+abline(h = 0.05, col = "red")
+abline(h = 0.95, col = "red")
+```
+
+From here we can see that our consistent values of $\pi$ form a contiguous interval (this will not always be the case, but often will). Now let's programmatically figure out the range of $\pi$ that lie within that "consistent" band.
+
+``` {r band_determine}
+(consistent_pi <- candidate_pi_101[(percentiles_101 >= 0.05) & (percentiles_101 <= 0.95)])
+(lower_bound <- min(consistent_pi))
+(upper_bound <- max(consistent_pi))
+```
+This gives us the interval (`r lower_bound`, `r upper_bound`). This is actually a $95-5=90\%$ confidence interval!
+
+## Recap
+
+What did we do? 
+
+We used programming rather than math to 1) evaluate if any given $\pi$-value was consistent with our data; and 2) we then used that idea to determine an interval of data-consistent $\pi$-values. We then saw that these operations give _exactly_ 1) the p-value for testing if our response probability is a given value $\pi$; and 2) A confidence interval for $\pi$.
