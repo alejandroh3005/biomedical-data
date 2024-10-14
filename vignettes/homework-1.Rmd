@@ -3,7 +3,7 @@ title: "BIOST 544: Homework 1"
 subtitle: "Department of Biostatistics @ University of Washington"
 author: 
 - Alejandro Hernandez
-date: "October 5, 2024"
+date: "October 10, 2024"
 output: pdf_document
 ---
 
@@ -16,7 +16,7 @@ labs = knitr::all_labels()
 labs = labs[!labs %in% c("setup", "llm_appendix", "allcode")]
 ```
 
-```{r load-libraries-data, include=F}
+```{r load, include=F}
 # clear environment
 rm(list=ls())
 
@@ -38,7 +38,7 @@ There is a belief that the effectiveness of the anti-angiogenesis agent TFD725 (
 
 1) As a first pass, we will consider a few subgroups of patients: Those 50 and older (50+), 55+, 60+, 65+, and 70+. Please estimate/evaluate the probability a patient on TFD725+docetaxel will survive past 400 days in each of those subgroups. Please also give an interval estimate for each of those probabilities.
 
-```{r simulation-functions}
+```{r question-1-functions}
 
 ## ===============
 ## Question 1
@@ -57,7 +57,7 @@ For a patient in a subpopulation of the TFD725+docetaxel treatment arm, the prob
 
 Table 1 shows the observed 400-day survival proportions and their confidence intervals for each age subgroup (note: subgroups are overlapping and share members).
 
-```{r question-1-overalpping}
+```{r question-1a}
 
 ## ============================
 ## Overlapping age groups
@@ -120,7 +120,7 @@ Table 1 and histograms of the simulated sampling distribution of P(Survived|Age)
 
 To further explore age effects, we divided the cohort into non-overlapping subgroups, with 400-day survival proportions and confidence intervals shown below.
 
-```{r question-1-nonoveralpping}
+```{r question-1b}
 
 ## ============================
 ## Non-overlapping age groups
@@ -156,7 +156,7 @@ means.treated$perc95 <-
   c(res50$ci[2], res55$ci[2], res60$ci[2], res65$ci[2], res70$ci[2])
 # inspect estimates and 95% CIs
 means.treated %>% 
-  mutate(CI = paste(round(perc5,2), "-", round(perc95,2), sep="")) %>%
+  mutate(CI = paste(round(perc5,2), "-", round(perc95,2))) %>%
   select(-c(perc5, perc95)) %>%
   knitr::kable(digits = 2,
                col.names = c("Age", "N", "Estimate", "90% CI"),
@@ -191,9 +191,18 @@ Table 2 and histograms (see Supplementary) suggest treated patients aged 55-64 h
 
 2) Now, in each of those subgroups evaluate whether TFD725+docetaxel is more effective than docetaxel alone (and the magnitude of any potential treatment effect). In addition, evaluate if the treatment effect appears to substantively and/or systematically differ across age (or if the data doesn’t give a clear answer to this).
 
-To test if TFD725+docetaxel is more effective than docetaxel alone, we can use a permutation test by repeatedly reassigning treatments to simulate a scenario where treatment has no effect (such that assignment is inconsequential). This generates a sampling distribution of survival differences, and the inner 90% percentile helps assess if our observed difference is unusually high.
+To test if TFD725+docetaxel is more effective than docetaxel alone, we can use a permutation test by repeatedly reassigning treatments to simulate a scenario where treatment has no effect (such that assignment is inconsequential). This generates a sampling distribution of survival differences, and comparison to the 95^th^ percentile assesses if our observed difference is unusually high given our assumption of no treatment effect.
+
+Table 3 and histograms (see Supplementary) suggest that TFD725+docetaxel is more effective than docetaxel alone among the collection of patients aged 50+ years and 60+ years. However, across all non-overlapping age groups, there is insufficient evidence that TFD725+docetaxel is more effective than docetaxel alone. 
+
+Evaluating our histograms leads us to conclude that treatment effect does not appear to substantively and/or systematically differ across age. Our simulations suggest TFD725 treatment is slightly more effective, although in most age groups, not significantly more effective. 
 
 ```{r question-2}
+
+## ===============
+## Question 2
+## ===============
+
 calc_stat <- function (data) {
   diff.means <- with(data,
     mean(survival.past.400[tx==1]) - mean(survival.past.400[tx==0]))
@@ -209,93 +218,131 @@ simulate_perm_trial <- function(data){
   return(calc_stat(perm.data))
 }
 
-pvals <- c()
-age_cutoffs <- c(seq(50, 70, 5), Inf)
-for (i in 1:5) {
-  nsclc_subset <- subset(nsclc, age_cutoffs[i] <= age & age < age_cutoffs[i+1])
-  simdata <- replicate(nsims, simulate_perm_trial(nsclc_subset))
-  # p-value
-  pvals <- c(pvals, mean(simdata >= obsv.stat))
-}
-pvals
-pvals <= 0.05
+## ============================
+## Overlapping age groups
+## ============================
 
+nsims <- 10000
 age_cutoffs <- seq(50, 70, 5)
+obsv.stats <- c()
 pvals <- c()
 for (c in age_cutoffs) {
   nsclc_subset <- subset(nsclc, c <= age)
   simdata <- replicate(nsims, simulate_perm_trial(nsclc_subset))
   obsv.stat <- calc_stat(nsclc_subset)
+  obsv.stats <- c(obsv.stats, obsv.stat)
   # p-value
   pvals <- c(pvals, mean(simdata >= obsv.stat))
 }
 
-pvals
-pvals <= 0.05
+res1 <- data.frame(Age = paste(age_cutoffs, "+", sep=""),
+                   Estimate = obsv.stats,
+                   P.value = pvals)
+
+## ============================
+## Non-overlapping age groups
+## ============================
+
+nsims <- 10000
+age_cutoffs <- c(seq(50, 70, 5), Inf)
+obsv.stats <- c()
+pvals <- c()
+for (i in 1:5) {
+  nsclc_subset <- subset(nsclc, age_cutoffs[i] <= age & age < age_cutoffs[i+1])
+  simdata <- replicate(nsims, simulate_perm_trial(nsclc_subset))
+  obsv.stat <- calc_stat(nsclc_subset)
+  obsv.stats <- c(obsv.stats, obsv.stat)
+  # p-value
+  pvals <- c(pvals, mean(simdata >= obsv.stat))
+}
+
+res2 <- data.frame(Age = paste(age_cutoffs[-6], "-", age_cutoffs[-6]+4, sep=""),
+                   Estimate = obsv.stats,
+                   P.value = pvals)
+
+cbind(res1, res2) %>% 
+  kable(digits = 2,
+        caption = "Observed survival differences associated with treatment, stratified by age group")
 ```
 
-## Supplementary
 
-```{r supplementary, warning=FALSE}
-# plot each simulated sampling distribution
-gridExtra::grid.arrange(gg, gg50, gg55, gg60, gg65, gg70, 
-                        top = "Simulated sampling distributions of proportion of survivors within treated group,\nstratified by non-overlapping age groups", 
-                        left = "Count")
 
+**End of analysis. Supplementary begins on the next page.**
+
+\pagebreak
+
+# Supplementary
+
+### Question 1
+
+Histograms of the simulated sampling distribution of P(Survived|Age), across overlapping age groups.
+
+```{r supplementary-1a, warning=FALSE}
 # plot each simulated sampling distribution
 gridExtra::grid.arrange(gg50.2, gg55.2, gg60.2, gg65.2, gg70.2,
                         top = "Simulated sampling distributions of proportion of survivors within treated group, \nstratified by overlapping age groups",
                         left = "Count")
 ```
 
-```{r}
-pvals <- c()
-par(mfrow = c(2, 3))
-age_cutoffs <- c(seq(50, 70, 5), Inf)
-for (i in 1:5) {
-  nsclc_subset <- subset(nsclc, age_cutoffs[i] <= age & age < age_cutoffs[i+1])
-  simdata <- replicate(nsims, simulate_perm_trial(nsclc_subset))
+\pagebreak
 
-  # simulated sampling distribution
-  hist(simdata, main = paste("Sampling distribution for", age_cutoffs[i], "-", age_cutoffs[i+1]))
-  # inner 95% percentiles
-  abline(v = quantile(simdata, probs=c(0.05, 0.95), names = FALSE),
-         col = "blue", lwd = 2)
-  # observed value
-  abline(v = calc_stat(nsclc_subset), col = "red", lwd = 2)
-  
-  # p-value
-  pvals <- c(pvals, mean(simdata >= obsv.stat))
-}
+Histograms of the simulated sampling distribution of P(Survived|Age), across non-overlapping age groups.
 
-pvals
-pvals <= 0.05
+```{r supplementary-1b, warning=FALSE}
+# plot each simulated sampling distribution
+gridExtra::grid.arrange(gg, gg50, gg55, gg60, gg65, gg70, 
+                        top = "Simulated sampling distributions of proportion of survivors within treated group,\nstratified by non-overlapping age groups", 
+                        left = "Count")
+```
 
+\pagebreak
 
+### Question 2
+
+Histograms of the simulated sampling distribution of P(Survived|TFD725+docetaxel) - P(Survived|docetaxel), across overlapping age groups. Blue lines denote 5% and 95% percentiles and define an inner 90% confidence interval under the hypothesis that TFD725 has no treatment effect; red line denotes our observed difference in survival associated with treatment.
+
+```{r supplementary-2a}
+nsims <- 10000
 par(mfrow = c(2, 3))
 age_cutoffs <- seq(50, 70, 5)
-pvals <- c()
 for (c in age_cutoffs) {
   nsclc_subset <- subset(nsclc, c <= age)
   simdata <- replicate(nsims, simulate_perm_trial(nsclc_subset))
   obsv.stat <- calc_stat(nsclc_subset)
 
   # simulated sampling distribution
-  hist(simdata, main = paste("Sampling distribution for", c, "+"))
+  hist(simdata, main = paste("Age ", c, "+ years",  sep=""), xlab = "")
   # inner 95% percentiles
   abline(v = quantile(simdata, probs=c(0.05, 0.95), names = FALSE),
          col = "blue", lwd = 2)
   # observed value
   abline(v = obsv.stat, col = "red", lwd = 2)
-  
-  # p-value
-  pvals <- c(pvals, mean(simdata >= obsv.stat))
 }
-
-pvals
-pvals <= 0.05
 ```
 
+\pagebreak
+
+Histograms of the simulated sampling distribution of P(Survived|TFD725+docetaxel) - P(Survived|docetaxel), across non-overlapping age groups. Blue lines denote 5% and 95% percentiles and define an inner 90% confidence interval under the hypothesis that TFD725 has no treatment effect; red line denotes our observed difference in survival associated with treatment.
+
+```{r supplementary-2b}
+nsims <- 10000
+par(mfrow = c(2, 3))
+age_cutoffs <- c(seq(50, 70, 5), Inf)
+for (i in 1:5) {
+  nsclc_subset <- subset(nsclc, age_cutoffs[i] <= age & age < age_cutoffs[i+1])
+  simdata <- replicate(nsims, simulate_perm_trial(nsclc_subset))
+  obsv.stat <- calc_stat(nsclc_subset)
+
+  # simulated sampling distribution
+  hist(simdata, main = paste("Age ", age_cutoffs[i], "-", age_cutoffs[i+1],  sep=""),
+        xlab = "")
+  # inner 95% percentiles
+  abline(v = quantile(simdata, probs=c(0.05, 0.95), names = FALSE),
+         col = "blue", lwd = 2)
+  # observed value
+  abline(v = calc_stat(nsclc_subset), col = "red", lwd = 2)
+}
+```
 
 **End of report. Code appendix begins on the next page.**
 
