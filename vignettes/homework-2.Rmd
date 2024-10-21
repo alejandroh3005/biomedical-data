@@ -50,39 +50,60 @@ calc_summary_stat <- function(data) {
 }
 
 # helper function
-permute_treatment <- function(data, adaptive=FALSE) {
+permute_treatment <- function(data, 
+                              adaptive=FALSE) {
   perm.data = data
   # adaptive randomization (this is used in Question 2)
   if (adaptive) {
-    perm.data$tx = sample(data$tx)
-  } 
+    # perm.data = data %>% arrange(order)  # optional ordering
+    s_new = 0
+    f_old = 0
+    totalP = 0
+    for (i in perm.data$order) {
+      currentP = perm.data[i,]  # row of current patient
+      # compute probability of receiving new treatment
+      p_new = (1+3*(s_new+f_old)) / (2+3*totalP)
+      # assign current patient to treatment or control arm
+      tx_new = rbinom(1, 1, p_new)
+      currentP$tx = tx_new
+      # update number of success among treated and failures among controls
+      s_new = ifelse(currentP$tx & currentP$outcome, s_new+1, s_new)
+      f_old = ifelse(!currentP$tx & !currentP$outcome, f_old+1, f_old)
+      totalP = totalP+1   # increment number of assigned patients
+      # insert updated patient data back into sample data
+      perm.data[i,] = currentP
+    }
+  }
   # classical randomization (this is used in Question 1)
   else {
-    # re-randomize the outcomes of our sample
-    perm.data$tx = sample(data$tx)
+    perm.data$tx = sample(data$tx)  # re-randomize the outcomes of our sample
   }
   return(perm.data)
 }
 
 # helper function
-sim_one_trial <- function(data, adaptive=FALSE) {
+sim_one_trial <- function(data, 
+                          adaptive=FALSE) {
   # permute treatment within our sample
-  perm.data = permute_treatment(data, adaptive=FALSE)
+  perm.data = permute_treatment(data, adaptive)
   summary.stat = calc_summary_stat(perm.data) # return a summary statistic
   return(summary.stat)
 }
 
 # function
-perm_test <- function(data, adaptive=FALSE) {
+perm_test <- function(data, 
+                      adaptive=FALSE) {
   # simulate a sampling distribution of the summary statistic using many 
   # permutations of the data
   n.permutations = 10000
-  permutations = replicate(n.permutations, sim_one_trial(data, adaptive=FALSE))
+  permutations = replicate(n.permutations, sim_one_trial(data, adaptive))
   return(list(output=permutations, n=n.permutations))
 }
 
 ## helper function to visualize permutation output
-plot_perm_test <- function(perm.test, observed.stat, plot=TRUE) {
+plot_perm_test <- function(perm.test, 
+                           observed.stat, 
+                           plot=TRUE) {
   simulated.summary.stats = perm.test$output
   n.sims = perm.test$n
   simulated.quantiles = quantile(simulated.summary.stats, probs=c(0.05, 0.95))
@@ -93,13 +114,14 @@ plot_perm_test <- function(perm.test, observed.stat, plot=TRUE) {
   # visually compare our observed value to the simulated sampling distribution
   gg = ggplot() + 
     # visualize the simulated sampling distribution with its 5% and 95% quantiles
-    geom_histogram(aes(simulated.summary.stats)) + 
+    geom_histogram(aes(simulated.summary.stats), bins = 100) + 
     geom_vline(xintercept=simulated.quantiles, linetype=2, col="blue") +
     # visualize our observed statistic
     geom_vline(xintercept=observed.stat, col="red") +
     labs(title=title, caption=caption) + 
     xlab("Difference in efficacy between treatment and control arms") + 
     ylab("Frequency") + 
+    xlim(-1,1) +
     theme_bw()
   if (plot) {print(gg)}
   return(gg)
@@ -181,7 +203,7 @@ pval <- mean(simulated.summary.stats > summary.stat)
 
 # simulate a sampling distributions of the summary statistic using permutations
 set.seed(1)
-perm.test2 <- perm_test(data=adptv, adaptive=TRUE)
+perm.test2 <- perm_test(data=adptv)  # "adaptive=FALSE" is a default argument 
 pval2 <- mean(perm.test2$output > summary.stat)
 
 # visually compare our observed value to the simulated sampling distribution
